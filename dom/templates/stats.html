@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Статистика{% endblock %}
+{% block main_class %}reading{% endblock %}
+{% block content %}
+<h1>Статистика</h1>
+<table class="meta">
+  <tr><th>Артов</th><td>{{ s.artworks }} (в каталоге: {{ s.artworks_catalogued }})</td></tr>
+  <tr><th>Записей каталога</th><td>{{ s.catalogue_entries }}</td></tr>
+  <tr><th>Записей дневника</th><td>{{ s.diary_entries }}</td></tr>
+  <tr><th>Рассказов</th><td>{{ s.stories }}</td></tr>
+  <tr><th>Аудио</th><td>{{ s.audio }}</td></tr>
+  <tr><th>Выборок из кладовой</th><td>{{ s.picks }}</td></tr>
+  {% if s.first_day %}<tr><th>Период</th><td>{{ s.first_day|ru_date }} — {{ s.last_day|ru_date }}</td></tr>{% endif %}
+  <tr><th>Объём медиа</th><td>{{ s.bytes|filesize }}</td></tr>
+  <tr><th>Папка данных</th><td><code>{{ cfg.data_dir }}</code> (только чтение)</td></tr>
+</table>
+<form method="post" action="/ingest"><button type="submit">Переиндексировать</button></form>
+{% set r = s.last_ingest %}
+{% if r %}
+<h2>Последняя индексация</h2>
+<p class="muted">{{ r.started_at }}, {{ r.duration_s }} с; новых артов {{ r.artworks_new }}, обновлено {{ r.artworks_updated }}, удалено {{ r.artworks_removed }}, миниатюр {{ r.thumbnails_created }}; контрольных сумм совпало {{ r.checksums_ok }}.</p>
+{% if r.missing %}<h3>Не найдено</h3><ul>{% for m in r.missing %}<li><code>{{ m }}</code></li>{% endfor %}</ul>{% endif %}
+{% if r.problems %}<h3>Проблемы</h3><ul>{% for p in r.problems %}<li><code>{{ p.path }}</code> — {{ p.error }}</li>{% endfor %}</ul>{% endif %}
+{% if r.checksum_mismatches %}<h3>Контрольная сумма не совпадает</h3><ul>{% for m in r.checksum_mismatches %}<li><code>{{ m }}</code></li>{% endfor %}</ul>{% endif %}
+{% if r.checksums_missing_files %}<h3>В списке сумм, но нет на диске</h3><ul>{% for m in r.checksums_missing_files %}<li><code>{{ m }}</code></li>{% endfor %}</ul>{% endif %}
+{% if r.catalogue_unlinked %}<h3>Записи каталога без файла</h3><ul>{% for m in r.catalogue_unlinked %}<li>{{ m }}</li>{% endfor %}</ul>{% endif %}
+{% endif %}
+{% endblock %}

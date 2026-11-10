@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "_macros.html" import tile, pager %}
+{% block title %}Хроника{% endblock %}
+{% block content %}
+<h1>Хроника</h1>
+{% if not groups %}<p class="muted">Пока ни одного дня. Запустите индексацию.</p>{% endif %}
+{% for g in groups %}
+<section class="day" id="d-{{ g.day }}">
+  <h2><a href="#d-{{ g.day }}">{{ g.day|ru_date(true) }}</a></h2>
+  {% for d in g.diary %}
+  <article class="entry">
+    <h3><span class="kind">Дневник</span> <a href="/diary#{{ d.anchor }}">{{ d.title or 'Запись' }}</a></h3>
+    <div class="prose">{{ md(d.body, heading_shift=2) }}</div>
+  </article>
+  {% endfor %}
+  {% for s in g.stories %}
+  <article class="entry">
+    <h3><span class="kind">Рассказ</span> <a href="/stories/{{ s.slug }}">{{ s.title }}</a></h3>
+    {% if s.preamble %}<p>{{ excerpt(s.preamble) }}</p>{% endif %}
+  </article>
+  {% endfor %}
+  {% if g.arts %}
+  <div class="grid small">{% for a in g.arts %}{{ tile(a) }}{% endfor %}</div>
+  {% if g.arts_total > g.arts|length %}
+  <p><a href="/?date_from={{ g.day }}&amp;date_to={{ g.day }}">ещё {{ g.arts_total - g.arts|length }} → все арты дня</a></p>
+  {% endif %}
+  {% endif %}
+</section>
+{% endfor %}
+{{ pager(page, pages, url_with) }}
+{% endblock %}

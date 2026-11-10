@@ -1,0 +1,40 @@
+[Unit]
+Description=Дом Шинобу — личный архив
+After=network.target
+
+[Service]
+Type=simple
+User=shinobu
+Group=shinobu
+WorkingDirectory=/opt/dom
+Environment=DOM_DATA_DIR=/home/shinobu/Shinobu
+Environment=DOM_DB_PATH=/var/lib/dom/dom.sqlite3
+Environment=DOM_CACHE_DIR=/var/cache/dom
+Environment=DOM_PORT=8000
+Environment=DOM_HOST=127.0.0.1
+Environment=DOM_PICK_COOLDOWN_DAYS=5
+# Optional overrides without editing this unit:
+EnvironmentFile=-/etc/dom.env
+# A first full ingest (hashes + thumbnails) can take minutes on a large archive.
+ExecStartPre=/opt/dom/.venv/bin/python -m dom ingest --json
+TimeoutStartSec=30min
+ExecStart=/opt/dom/.venv/bin/python -m dom serve
+Restart=on-failure
+RestartSec=5
+
+# The service only reads the data dir; it writes to its state and cache dirs.
+StateDirectory=dom
+CacheDirectory=dom
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/home/shinobu/Shinobu
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

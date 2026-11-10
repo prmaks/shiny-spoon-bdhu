@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Дом Шинобу{% endblock %} · Дом Шинобу</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="site">
+    <a class="brand" href="/">Дом Шинобу</a>
+    <nav>
+      {% set p = request.url.path %}
+      <a href="/" {% if p == '/' or p.startswith('/art') %}aria-current="page"{% endif %}>Библиотека</a>
+      <a href="/timeline" {% if p.startswith('/timeline') %}aria-current="page"{% endif %}>Хроника</a>
+      <a href="/diary" {% if p.startswith('/diary') %}aria-current="page"{% endif %}>Дневник</a>
+      <a href="/stories" {% if p.startswith('/stories') %}aria-current="page"{% endif %}>Рассказы</a>
+      <a href="/audio" {% if p.startswith('/audio') %}aria-current="page"{% endif %}>Голоса</a>
+      <a href="/wardrobe" {% if p.startswith('/wardrobe') %}aria-current="page"{% endif %}>Гардероб</a>
+      <a href="/pick" {% if p.startswith('/pick') %}aria-current="page"{% endif %}>Кладовая</a>
+      <a href="/stats" {% if p.startswith('/stats') %}aria-current="page"{% endif %}>Статистика</a>
+    </nav>
+  </header>
+  <main class="{% block main_class %}{% endblock %}">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Кладовая{% endblock %}
+{% block content %}
+<h1>Кладовая</h1>
+<form class="filters" method="post" action="/pick">
+  <label>Сколько вытянуть <input type="number" name="count" min="1" max="100" value="{{ (result.artworks|length) if result and result.artworks else 3 }}"></label>
+  <button type="submit">Вытянуть</button>
+  <span class="muted">Арты, выпавшие за последние {{ cooldown }} дн., не повторяются, пока не выпадут все.</span>
+</form>
+{% if result and result.artworks %}
+<p class="muted">Вытянуто {{ result.picked_at[:10]|ru_date }}, {{ result.picked_at[11:16] }} UTC</p>
+<div class="pick">
+  {% for a in result.artworks %}
+  <figure>
+    <a href="{{ a.url }}">{% if a.thumb %}<img src="{{ a.thumb }}" alt="{{ a.title or a.filename }}">{% else %}<span class="nothumb">{{ a.filename }}</span>{% endif %}</a>
+    <figcaption><a href="{{ a.url }}">{{ a.title or a.filename }}</a><br><span class="muted">{{ a.day|ru_date }}</span></figcaption>
+  </figure>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted">Ещё ничего не вытягивали.</p>
+{% endif %}
+{% if history %}
+<details><summary>История</summary>
+<ul class="history">{% for h in history %}<li><span class="muted">{{ h.picked_at[:16]|replace('T', ' ') }}</span> <a href="/art/{{ h.id }}">{{ h.filename }}</a></li>{% endfor %}</ul>
+</details>
+{% endif %}
+<p class="muted">JSON: <code>POST /api/pick?count=3</code></p>
+{% endblock %}

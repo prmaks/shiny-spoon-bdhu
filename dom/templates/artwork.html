@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "_macros.html" import tile %}
+{% block title %}{{ a.cat_title or a.filename }}{% endblock %}
+{% block content %}
+<nav class="prevnext">
+  {% if prev %}<a href="/art/{{ prev.id }}" rel="prev">← {{ prev.filename }}</a>{% else %}<span></span>{% endif %}
+  <a href="/?date_from={{ a.day }}&amp;date_to={{ a.day }}">все за {{ a.day|ru_date }}</a>
+  {% if next %}<a href="/art/{{ next.id }}" rel="next">{{ next.filename }} →</a>{% else %}<span></span>{% endif %}
+</nav>
+<article class="artwork">
+  <figure>
+    <a href="/media/art/{{ a.id }}" target="_blank" title="Открыть в полном размере">
+      <img src="/media/art/{{ a.id }}" alt="{{ a.cat_title or a.filename }}"
+           {% if a.width %}width="{{ a.width }}" height="{{ a.height }}"{% endif %}>
+    </a>
+    <figcaption><a href="/media/art/{{ a.id }}" target="_blank">Открыть в полном размере ↗</a></figcaption>
+  </figure>
+  <div class="about">
+    <h1>{{ a.cat_title or a.filename }}</h1>
+    <table class="meta">
+      <tr><th>Файл</th><td><code>{{ a.path }}</code></td></tr>
+      <tr><th>Дата</th><td><a href="/timeline#d-{{ a.day }}">{{ a.day|ru_date(true) }}</a></td></tr>
+      {% if a.width %}<tr><th>Размер</th><td>{{ a.width }}×{{ a.height }} · {{ a.ext|upper }} · {{ a.size_bytes|filesize }}</td></tr>
+      {% else %}<tr><th>Размер</th><td>{{ a.ext|upper }} · {{ a.size_bytes|filesize }}</td></tr>{% endif %}
+      {% if a.model %}<tr><th>Модель</th><td><a href="/?model={{ a.model|urlencode }}">{{ a.model }}</a></td></tr>{% endif %}
+      {% if a.seed or a.cat_seed %}<tr><th>Seed</th><td>{{ a.seed or a.cat_seed }}</td></tr>{% endif %}
+      {% if a.cat_format or a.cat_width %}<tr><th>По каталогу</th><td>{{ a.cat_format or '' }} {% if a.cat_width %}{{ a.cat_width }}×{{ a.cat_height }}{% endif %} {% if a.cat_size %}· {{ a.cat_size }}{% endif %}</td></tr>{% endif %}
+      <tr><th>SHA-256</th><td><code class="hash">{{ a.sha256 }}</code>
+        {% if a.checksum_status == 'ok' %}<span class="ok">✓ совпадает</span>{% elif a.checksum_status == 'mismatch' %}<span class="bad">✗ не совпадает с контрольной суммой</span>{% endif %}</td></tr>
+    </table>
+    {% if a.cat_prose %}
+    <section class="prose">{{ md(a.cat_prose) }}</section>
+    {% elif not a.catalogue_id %}
+    <p class="muted">В каталоге описания нет.</p>
+    {% endif %}
+    {% if a.prompt %}
+    <details class="prompt"><summary>Промпт из файла</summary><pre>{{ a.prompt }}</pre></details>
+    {% endif %}
+    {% if diary %}
+    <p class="muted">В дневнике в этот день:
+      {% for d in diary %}<a href="/diary#{{ d.anchor }}">{{ d.title or d.anchor }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+    </p>
+    {% endif %}
+  </div>
+</article>
+{% if related %}
+<section>
+  <h2>Из той же сессии</h2>
+  <div class="grid small">{% for r in related %}{{ tile(r) }}{% endfor %}</div>
+</section>
+{% endif %}
+{% endblock %}

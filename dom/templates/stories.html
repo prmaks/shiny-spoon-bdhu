@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Рассказы{% endblock %}
+{% block main_class %}reading{% endblock %}
+{% block content %}
+<h1>Рассказы</h1>
+{% if not stories %}<p class="muted">Рассказов пока нет. Они ищутся в папке <code>рассказы/</code>.</p>{% endif %}
+<ul class="stories">
+{% for s in stories %}
+  <li><a href="/stories/{{ s.slug }}">{{ s.title }}</a>
+    <span class="muted"><time datetime="{{ s.day }}">{{ s.day|ru_date }}</time>{% if s.n_sections %} · частей: {{ s.n_sections }}{% endif %}</span>
+    {% if s.preamble %}<p>{{ excerpt(s.preamble, 200) }}</p>{% endif %}
+  </li>
+{% endfor %}
+</ul>
+{% endblock %}
