@@ -42,27 +42,50 @@ RU_MONTHS = {
     )
 }  # fmt: skip
 RU_WEEKDAYS = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
-# "16 октября 2026", optional "г." and ", вторник", then an optional separated title.
+# "16 октября 2026", optional "г." and ", вторник"; the rest is the title.
 RU_DATED_HEADING_RE = re.compile(
     rf"^\s*(\d{{1,2}})\s+({'|'.join(RU_MONTHS)})\s+(\d{{4}})(?!\d)"
     r"(?:\s*г(?:\.|(?!\w)))?"
     rf"(?:\s*,\s*(?:{'|'.join(RU_WEEKDAYS)})(?!\w))?"
-    r"\s*(?:[—–:-]+\s*)?(.*)$",
+    r"(.*)$",
     re.IGNORECASE,
 )
+# "31.10.2026", optional "г." and ", 05:10"; the rest is the title.
+DOTTED_HEADING_RE = re.compile(
+    r"^\s*(\d{1,2})\.(\d{1,2})\.(\d{4})(?!\d)"
+    r"(?:\s*г(?:\.|(?!\w)))?"
+    r"(?:\s*,?\s*\d{1,2}:\d{2}(?!\d))?"
+    r"(.*)$"
+)
+TITLE_LEAD_RE = re.compile(r"^(?:[\s:,·—–-]|г\.)+")
 
 
-def parse_ru_dated_heading(heading: str) -> tuple[str, str] | None:
-    """Parse '16 октября 2026 г., вторник — title' into (ISO day, title)."""
-    m = RU_DATED_HEADING_RE.match(heading)
-    if not m:
-        return None
-    day, month, year = int(m.group(1)), RU_MONTHS[m.group(2).lower()], int(m.group(3))
+def _clean_title(rest: str) -> str:
+    return TITLE_LEAD_RE.sub("", rest).strip()
+
+
+def _iso(year: int, month: int, day: int) -> str | None:
     try:
-        iso = date(year, month, day).isoformat()
+        return date(year, month, day).isoformat()
     except ValueError:
         return None
-    return iso, m.group(4).strip()
+
+
+def parse_dated_heading(heading: str) -> tuple[str, str] | None:
+    """Parse an ISO, Russian ('16 октября 2026') or dotted ('31.10.2026') dated heading
+    into (ISO day, title); None if the heading does not start with a valid date."""
+    m = DATED_HEADING_RE.match(heading)
+    if m and valid_date(m.group(1)):
+        return m.group(1), _clean_title(m.group(2))
+    m = RU_DATED_HEADING_RE.match(heading)
+    if m:
+        iso = _iso(int(m.group(3)), RU_MONTHS[m.group(2).lower()], int(m.group(1)))
+        return (iso, _clean_title(m.group(4))) if iso else None
+    m = DOTTED_HEADING_RE.match(heading)
+    if m:
+        iso = _iso(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+        return (iso, _clean_title(m.group(4))) if iso else None
+    return None
 
 
 _SLUG_STRIP = re.compile(r"[^\w\s-]", re.UNICODE)
@@ -125,14 +148,9 @@ def split_sections(text: str) -> ParsedDoc:
     doc = ParsedDoc(title=title, preamble="\n".join(preamble).strip("\n"), sections=sections)
     used: set[str] = set()
     for s in doc.sections:
-        m = DATED_HEADING_RE.match(s.heading)
-        ru = None if m else parse_ru_dated_heading(s.heading)
-        if m and valid_date(m.group(1)):
-            s.day = m.group(1)
-            s.title = m.group(2).strip()
-            s.anchor = unique_anchor(s.day, used)
-        elif ru:
-            s.day, s.title = ru
+        dated = parse_dated_heading(s.heading)
+        if dated:
+            s.day, s.title = dated
             s.anchor = unique_anchor(s.day, used)
         else:
             s.title = s.heading

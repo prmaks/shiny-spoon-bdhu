@@ -34,6 +34,14 @@ def test_sections_unique_anchors():
         ("1 мая 2026 г.", "2026-05-01", ""),
         ("3 сентября 2026, среда", "2026-09-03", ""),
         ("16 октября 2026 — первый снег", "2026-10-16", "первый снег"),
+        ("3 ноября 2026, поздний вечер", "2026-11-03", "поздний вечер"),
+        (
+            "31.10.2026, 05:10 — взрослый японский референс",
+            "2026-10-31",
+            "взрослый японский референс",
+        ),
+        ("31.10.2026", "2026-10-31", ""),
+        ("05.01.2026 г. · утро", "2026-01-05", "утро"),
     ],
 )
 def test_russian_dated_headings(heading, day, title):
@@ -43,17 +51,25 @@ def test_russian_dated_headings(heading, day, title):
     assert s.body == "Текст записи."
 
 
+def test_full_russian_heading_keeps_title():
+    (s,) = split_sections("## 16 октября 2026 — первый снег\nСнег.\n").sections
+    assert s.day == "2026-10-16"
+    assert s.title == "первый снег"
+
+
 def test_russian_dated_heading_rejects_invalid_dates():
-    doc = split_sections("## 31 февраля 2026\nx\n## 16 октябряя 2026\ny\n")
-    assert [s.day for s in doc.sections] == [None, None]
+    doc = split_sections("## 31 февраля 2026\nx\n## 16 октябряя 2026\ny\n## 32.10.2026\nz\n")
+    assert [s.day for s in doc.sections] == [None, None, None]
 
 
 def test_diary_ingest_stores_iso_day_for_russian_headings(cfg, conn, data_dir):
     (data_dir / "дневник.md").write_text(
-        "# Дневник\n\n## 16 октября 2026 — первый снег\nСнег.\n\n## 1 мая 2026 г.\nВесна.\n",
+        "# Дневник\n\n## 16 октября 2026 — первый снег\nСнег.\n\n## 1 мая 2026 г.\nВесна.\n"
+        "\n## 31.10.2026, 05:10 — взрослый японский референс\nНочь.\n",
         encoding="utf-8",
     )
-    ingest(cfg, conn)
+    report = ingest(cfg, conn)
+    assert not any(p["path"] == "дневник.md" for p in report.problems)
     rows = conn.execute(
         "SELECT s.day, s.title, s.anchor FROM sections s JOIN documents d ON d.id = s.doc_id "
         "WHERE d.kind = 'diary' ORDER BY s.position"
@@ -61,6 +77,7 @@ def test_diary_ingest_stores_iso_day_for_russian_headings(cfg, conn, data_dir):
     assert [tuple(r) for r in rows] == [
         ("2026-10-16", "первый снег", "2026-10-16"),
         ("2026-05-01", "", "2026-05-01"),
+        ("2026-10-31", "взрослый японский референс", "2026-10-31"),
     ]
 
 
