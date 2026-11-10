@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Голоса{% endblock %}
+{% block main_class %}reading{% endblock %}
+{% block content %}
+<h1>Голоса и звуки</h1>
+{% if not items %}<p class="muted">Записей нет. Они ищутся в папках <code>голосовые/</code> и <code>звуки/</code>.</p>{% endif %}
+<ul class="audio">
+{% for a in items %}
+  <li id="a-{{ a.id }}">
+    <div class="audio-head"><strong>{{ a.filename }}</strong>
+      <span class="muted">{{ a.source }} · <a href="/timeline#d-{{ a.day }}">{{ a.day|ru_date }}</a> · {{ a.size_bytes|filesize }}{% if a.duration %} · {{ a.duration|duration }}{% endif %}</span></div>
+    <audio controls preload="none" src="/media/audio/{{ a.id }}"></audio>
+  </li>
+{% endfor %}
+</ul>
+{% endblock %}

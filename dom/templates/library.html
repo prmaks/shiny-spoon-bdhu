@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "_macros.html" import tile, pager %}
+{% block title %}Библиотека{% endblock %}
+{% block content %}
+<form class="filters" method="get" action="/">
+  <input type="search" name="q" value="{{ f.q }}" placeholder="Поиск по названиям, каталогу и дневнику">
+  <label>с <input type="date" name="date_from" value="{{ f.date_from }}"></label>
+  <label>по <input type="date" name="date_to" value="{{ f.date_to }}"></label>
+  <select name="source" aria-label="Папка">
+    <option value="">все папки</option>
+    {% for s in facets.sources %}<option value="{{ s }}" {% if s == f.source %}selected{% endif %}>{{ s }}</option>{% endfor %}
+  </select>
+  <select name="catalogued" aria-label="Каталог">
+    <option value="">с описанием и без</option>
+    <option value="yes" {% if f.catalogued == 'yes' %}selected{% endif %}>есть в каталоге</option>
+    <option value="no" {% if f.catalogued == 'no' %}selected{% endif %}>нет в каталоге</option>
+  </select>
+  <select name="model" aria-label="Модель">
+    <option value="">любая модель</option>
+    {% for m, n in facets.models %}<option value="{{ m }}" {% if m == f.model %}selected{% endif %}>{{ m }} ({{ n }})</option>{% endfor %}
+  </select>
+  <button type="submit">Найти</button>
+  {% if request.query_params %}<a class="reset" href="/">сбросить</a>{% endif %}
+</form>
+
+{% if hits %}
+<section class="hits">
+  <h2>В текстах</h2>
+  <ul>
+  {% for h in hits %}
+    <li>
+      {% if h.kind == 'diary' %}<a href="/diary#{{ h.anchor }}">
+      {% elif h.kind == 'wardrobe' %}<a href="/wardrobe{% if h.anchor %}#{{ h.anchor }}{% endif %}">
+      {% else %}<a href="/stories/{{ h.slug }}{% if h.anchor %}#{{ h.anchor }}{% endif %}">{% endif %}
+        <span class="kind">{{ kind_labels.get(h.kind, h.kind) }}</span>
+        {% if h.day %}<time datetime="{{ h.day }}">{{ h.day|ru_date }}</time>{% endif %}
+        <strong>{{ h.title }}</strong></a>
+      <p class="snippet">{{ h.snippet|safe }}</p>
+    </li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<p class="count">
+  {% if total %}Найдено артов: {{ total }}{% else %}Ничего не найдено.{% if not request.query_params %} Запустите индексацию: <code>python -m dom ingest</code>.{% endif %}{% endif %}
+</p>
+<div class="grid">
+  {% for a in rows %}{{ tile(a) }}{% endfor %}
+</div>
+{{ pager(page, pages, url_with) }}
+{% endblock %}

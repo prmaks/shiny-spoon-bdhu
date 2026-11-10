@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ doc.title }}{% endblock %}
+{% block main_class %}reading{% endblock %}
+{% block content %}
+<article class="doc">
+  <h1>{{ doc.title }}</h1>
+  {% if doc.kind == 'story' and doc.day %}<p class="muted"><time datetime="{{ doc.day }}">{{ doc.day|ru_date }}</time></p>{% endif %}
+  {% if sections|length > 3 %}
+  <nav class="toc" aria-label="Оглавление">
+    <details><summary>Оглавление</summary><ol>
+      {% for s in sections %}<li><a href="#{{ s.anchor }}">{% if s.day %}{{ s.day|ru_date }}{% if s.title %} — {% endif %}{% endif %}{{ s.title }}</a></li>{% endfor %}
+    </ol></details>
+  </nav>
+  {% endif %}
+  {% if doc.preamble %}<div class="prose">{{ md(doc.preamble) }}</div>{% endif %}
+  {% for s in sections %}
+  <section id="{{ s.anchor }}">
+    <h2>{% if s.day %}<time datetime="{{ s.day }}">{{ s.day|ru_date }}</time>{% if s.title %} — {% endif %}{% endif %}{{ s.title }}
+      <a class="anchor" href="#{{ s.anchor }}" aria-label="Ссылка на раздел">#</a></h2>
+    <div class="prose">{{ md(s.body, heading_shift=1) }}</div>
+    {% if s.day and doc.kind == 'diary' %}<p class="aside"><a href="/timeline#d-{{ s.day }}">этот день в хронике →</a></p>{% endif %}
+  </section>
+  {% endfor %}
+</article>
+{% endblock %}
