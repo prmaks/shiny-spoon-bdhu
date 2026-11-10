@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block main_class %}reading{% endblock %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="muted">Здесь пока ничего нет. Если файл уже лежит в папке данных, запустите индексацию: <code>python -m dom ingest</code>.</p>
+{% endblock %}
