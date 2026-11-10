@@ -474,7 +474,8 @@ def _store_doc(conn, kind, slug, path, data_dir, title, day, parsed) -> int:
     conn.executemany(
         "INSERT INTO sections(doc_id, position, anchor, day, title, body) VALUES (?,?,?,?,?,?)",
         [
-            (doc_id, i, s.anchor, s.day, s.title or s.heading, s.body)
+            # Dated sections keep an empty title when the heading is only a date.
+            (doc_id, i, s.anchor, s.day, s.title if s.day else (s.title or s.heading), s.body)
             for i, s in enumerate(parsed.sections)
         ],
     )

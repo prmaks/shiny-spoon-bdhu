@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+from dom.ingest import ingest
 from dom.markup import render
 from dom.parsing import extract_embedded, parse_catalogue, split_sections
 
@@ -22,6 +25,43 @@ def test_sections_unique_anchors():
     doc = split_sections("## 2025-01-01 — а\nx\n## 2025-01-01 — б\ny\n```\n## не раздел\n```\n")
     assert [s.anchor for s in doc.sections] == ["2025-01-01", "2025-01-01-2"]
     assert "## не раздел" in doc.sections[1].body
+
+
+@pytest.mark.parametrize(
+    ("heading", "day", "title"),
+    [
+        ("16 октября 2026", "2026-10-16", ""),
+        ("1 мая 2026 г.", "2026-05-01", ""),
+        ("3 сентября 2026, среда", "2026-09-03", ""),
+        ("16 октября 2026 — первый снег", "2026-10-16", "первый снег"),
+    ],
+)
+def test_russian_dated_headings(heading, day, title):
+    doc = split_sections(f"# Дневник\n\n## {heading}\nТекст записи.\n")
+    (s,) = doc.sections
+    assert (s.day, s.title, s.anchor) == (day, title, day)
+    assert s.body == "Текст записи."
+
+
+def test_russian_dated_heading_rejects_invalid_dates():
+    doc = split_sections("## 31 февраля 2026\nx\n## 16 октябряя 2026\ny\n")
+    assert [s.day for s in doc.sections] == [None, None]
+
+
+def test_diary_ingest_stores_iso_day_for_russian_headings(cfg, conn, data_dir):
+    (data_dir / "дневник.md").write_text(
+        "# Дневник\n\n## 16 октября 2026 — первый снег\nСнег.\n\n## 1 мая 2026 г.\nВесна.\n",
+        encoding="utf-8",
+    )
+    ingest(cfg, conn)
+    rows = conn.execute(
+        "SELECT s.day, s.title, s.anchor FROM sections s JOIN documents d ON d.id = s.doc_id "
+        "WHERE d.kind = 'diary' ORDER BY s.position"
+    ).fetchall()
+    assert [tuple(r) for r in rows] == [
+        ("2026-10-16", "первый снег", "2026-10-16"),
+        ("2026-05-01", "", "2026-05-01"),
+    ]
 
 
 def test_markdown_escapes_html():

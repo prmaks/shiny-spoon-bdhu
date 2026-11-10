@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import date
 
 DATE_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 # "## 2025-03-14 — Title" (em/en dash, hyphen or colon as separator, title optional)
@@ -28,6 +29,40 @@ def valid_date(text: str | None) -> str | None:
     if 1900 <= y <= 2200 and 1 <= mo <= 12 and 1 <= d <= 31:
         return m.group(0)
     return None
+
+
+RU_MONTHS = {
+    name: i
+    for i, name in enumerate(
+        (
+            "января", "февраля", "марта", "апреля", "мая", "июня",
+            "июля", "августа", "сентября", "октября", "ноября", "декабря",
+        ),
+        start=1,
+    )
+}  # fmt: skip
+RU_WEEKDAYS = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
+# "16 октября 2026", optional "г." and ", вторник", then an optional separated title.
+RU_DATED_HEADING_RE = re.compile(
+    rf"^\s*(\d{{1,2}})\s+({'|'.join(RU_MONTHS)})\s+(\d{{4}})(?!\d)"
+    r"(?:\s*г(?:\.|(?!\w)))?"
+    rf"(?:\s*,\s*(?:{'|'.join(RU_WEEKDAYS)})(?!\w))?"
+    r"\s*(?:[—–:-]+\s*)?(.*)$",
+    re.IGNORECASE,
+)
+
+
+def parse_ru_dated_heading(heading: str) -> tuple[str, str] | None:
+    """Parse '16 октября 2026 г., вторник — title' into (ISO day, title)."""
+    m = RU_DATED_HEADING_RE.match(heading)
+    if not m:
+        return None
+    day, month, year = int(m.group(1)), RU_MONTHS[m.group(2).lower()], int(m.group(3))
+    try:
+        iso = date(year, month, day).isoformat()
+    except ValueError:
+        return None
+    return iso, m.group(4).strip()
 
 
 _SLUG_STRIP = re.compile(r"[^\w\s-]", re.UNICODE)
@@ -91,9 +126,13 @@ def split_sections(text: str) -> ParsedDoc:
     used: set[str] = set()
     for s in doc.sections:
         m = DATED_HEADING_RE.match(s.heading)
+        ru = None if m else parse_ru_dated_heading(s.heading)
         if m and valid_date(m.group(1)):
             s.day = m.group(1)
             s.title = m.group(2).strip()
+            s.anchor = unique_anchor(s.day, used)
+        elif ru:
+            s.day, s.title = ru
             s.anchor = unique_anchor(s.day, used)
         else:
             s.title = s.heading
