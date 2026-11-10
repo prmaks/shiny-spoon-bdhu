@@ -1,0 +1,20 @@
+{% macro tile(a) -%}
+<a class="tile" href="/art/{{ a.id }}" title="{{ a.cat_title or a.filename }}">
+  {% if a.has_thumb %}
+  <img src="/thumb/{{ a.sha256 }}.webp" alt="{{ a.cat_title or a.filename }}" loading="lazy" decoding="async">
+  {% else %}
+  <span class="nothumb">{{ a.filename }}</span>
+  {% endif %}
+  <span class="cap">{{ a.cat_title or a.filename }}</span>
+</a>
+{%- endmacro %}
+
+{% macro pager(page, pages, url_with) -%}
+{% if pages > 1 %}
+<nav class="pager" aria-label="Страницы">
+  {% if page > 1 %}<a href="{{ url_with(page=page-1) }}" rel="prev">← Назад</a>{% endif %}
+  <span>страница {{ page }} из {{ pages }}</span>
+  {% if page < pages %}<a href="{{ url_with(page=page+1) }}" rel="next">Дальше →</a>{% endif %}
+</nav>
+{% endif %}
+{%- endmacro %}
