@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Гардероб{% endblock %}
+{% block content %}
+<h1>Гардероб</h1>
+{% if not sections %}
+<p class="muted">Образов пока нет. Они берутся из <code>гардероб.md</code>: разделы «## …» и записи «**1. Название** — …».</p>
+{% endif %}
+{% for s in sections %}
+<section class="wardrobe-section" id="{{ s.anchor }}">
+  <h2>{{ s.title }} <a class="anchor" href="#{{ s.anchor }}" aria-label="Ссылка на раздел">#</a></h2>
+  <div class="cards">
+  {% for w in s["items"] %}
+    <article class="card" id="w-{{ w.position }}">
+      {% if w.art_id %}
+      <a class="photo" href="/media/art/{{ w.art_id }}" data-lightbox data-caption="{{ w.title }}">
+        {% if w.has_thumb %}<img src="/thumb/{{ w.sha256 }}.webp?v={{ thumbs_version }}" alt="{{ w.title }}" loading="lazy" decoding="async">
+        {% else %}<img src="/media/art/{{ w.art_id }}" alt="{{ w.title }}" loading="lazy">{% endif %}
+      </a>
+      {% else %}
+      <div class="photo placeholder"><span>фото ещё нет</span></div>
+      {% endif %}
+      <div class="card-body">
+        <h3>{% if w.number %}<span class="num">{{ w.number }}.</span> {% endif %}{{ w.title }}</h3>
+        {% if w.prose %}<div class="prose">{{ md(w.prose) }}</div>{% endif %}
+        {% if w.worn_note %}<p class="worn muted">надето {{ w.worn_note }}{% if w.art_id %} · <a href="/art/{{ w.art_id }}">арт</a>{% endif %}</p>{% endif %}
+        {% if w.prompt %}<details class="prompt"><summary>промт</summary><pre>{{ w.prompt }}</pre></details>{% endif %}
+      </div>
+    </article>
+  {% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% endblock %}
+{% block scripts %}{% include "_lightbox.html" %}{% endblock %}

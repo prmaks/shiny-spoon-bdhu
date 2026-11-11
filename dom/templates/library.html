@@ -2,26 +2,46 @@
 {% from "_macros.html" import tile, pager %}
 {% block title %}Библиотека{% endblock %}
 {% block content %}
+{% set active = f.date_from or f.date_to or f.source or f.catalogued or f.model or f.who %}
 <form class="filters" method="get" action="/">
-  <input type="search" name="q" value="{{ f.q }}" placeholder="Поиск по названиям, каталогу и дневнику">
-  <label>с <input type="date" name="date_from" value="{{ f.date_from }}"></label>
-  <label>по <input type="date" name="date_to" value="{{ f.date_to }}"></label>
-  <select name="source" aria-label="Папка">
-    <option value="">все папки</option>
-    {% for s in facets.sources %}<option value="{{ s }}" {% if s == f.source %}selected{% endif %}>{{ s }}</option>{% endfor %}
-  </select>
-  <select name="catalogued" aria-label="Каталог">
-    <option value="">с описанием и без</option>
-    <option value="yes" {% if f.catalogued == 'yes' %}selected{% endif %}>есть в каталоге</option>
-    <option value="no" {% if f.catalogued == 'no' %}selected{% endif %}>нет в каталоге</option>
-  </select>
-  <select name="model" aria-label="Модель">
-    <option value="">любая модель</option>
-    {% for m, n in facets.models %}<option value="{{ m }}" {% if m == f.model %}selected{% endif %}>{{ m }} ({{ n }})</option>{% endfor %}
-  </select>
-  <button type="submit">Найти</button>
-  {% if request.query_params %}<a class="reset" href="/">сбросить</a>{% endif %}
+  <div class="filters-main">
+    <input type="search" name="q" value="{{ f.q }}" placeholder="Поиск по названиям, подписям и текстам" aria-label="Поиск">
+    <button type="submit">Найти</button>
+  </div>
+  <details class="filters-more" id="filters-more" open>
+    <summary>Фильтры{% if active %} · включены{% endif %}</summary>
+    <div class="filters-row">
+      <label>с <input type="date" name="date_from" value="{{ f.date_from }}"></label>
+      <label>по <input type="date" name="date_to" value="{{ f.date_to }}"></label>
+      <select name="who" aria-label="Кто в кадре">
+        <option value="">кто в кадре: все</option>
+        <option value="shinobu" {% if f.who == 'shinobu' %}selected{% endif %}>я</option>
+        <option value="other" {% if f.who == 'other' %}selected{% endif %}>другая</option>
+        <option value="none" {% if f.who == 'none' %}selected{% endif %}>без людей</option>
+      </select>
+      <select name="source" aria-label="Папка">
+        <option value="">все папки</option>
+        {% for s in facets.sources %}<option value="{{ s }}" {% if s == f.source %}selected{% endif %}>{{ s }}</option>{% endfor %}
+      </select>
+      <select name="catalogued" aria-label="Каталог">
+        <option value="">с описанием и без</option>
+        <option value="yes" {% if f.catalogued == 'yes' %}selected{% endif %}>есть в каталоге</option>
+        <option value="no" {% if f.catalogued == 'no' %}selected{% endif %}>нет в каталоге</option>
+      </select>
+      <select name="model" aria-label="Модель">
+        <option value="">любая модель</option>
+        {% for m, n in facets.models %}<option value="{{ m }}" {% if m == f.model %}selected{% endif %}>{{ m }} ({{ n }})</option>{% endfor %}
+      </select>
+      {% if request.query_params %}<a class="reset" href="/">сбросить</a>{% endif %}
+    </div>
+  </details>
 </form>
+{% if not active %}
+<script>
+  // Phones start with the filters folded; desktop keeps them open.
+  if (matchMedia("(max-width: 640px)").matches) document.getElementById("filters-more").open = false;
+</script>
+{% endif %}
 
 {% if hits %}
 <section class="hits">

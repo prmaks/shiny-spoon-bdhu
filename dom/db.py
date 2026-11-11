@@ -25,7 +25,11 @@ CREATE TABLE IF NOT EXISTS artworks (
     embedded_model TEXT,
     catalogue_id INTEGER REFERENCES catalogue(id) ON DELETE SET NULL,
     has_thumb INTEGER NOT NULL DEFAULT 0,
-    checksum_status TEXT                -- ok / mismatch / NULL (unknown)
+    checksum_status TEXT,               -- ok / mismatch / NULL (unknown)
+    caption TEXT,                       -- from the captions.jsonl sidecar
+    caption_who TEXT,                   -- shinobu / other / none
+    caption_model TEXT,
+    caption_ts INTEGER
 );
 CREATE INDEX IF NOT EXISTS ix_art_order ON artworks(day DESC, path);
 CREATE INDEX IF NOT EXISTS ix_art_source ON artworks(source, day DESC, path);
@@ -82,9 +86,25 @@ CREATE TABLE IF NOT EXISTS audio (
     ext TEXT NOT NULL,
     size_bytes INTEGER NOT NULL,
     mtime REAL NOT NULL,
-    duration REAL
+    duration REAL,
+    title TEXT,                         -- from the voices.jsonl sidecar
+    context TEXT,
+    source_slug TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_audio_day ON audio(day DESC, path);
+
+CREATE TABLE IF NOT EXISTS wardrobe_items (
+    id INTEGER PRIMARY KEY,
+    section TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    number TEXT,
+    title TEXT NOT NULL,
+    prose TEXT NOT NULL DEFAULT '',
+    prompt TEXT,
+    worn_note TEXT,
+    photo TEXT,                         -- the "фото:" filename as written
+    art_id INTEGER REFERENCES artworks(id) ON DELETE SET NULL
+);
 
 CREATE TABLE IF NOT EXISTS checksums (
     path TEXT PRIMARY KEY,              -- as written in the file
@@ -115,6 +135,26 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(
 );
 """
 
+# Columns added after the first release; CREATE TABLE IF NOT EXISTS won't add them.
+MIGRATIONS = {
+    "artworks": [
+        ("caption", "TEXT"),
+        ("caption_who", "TEXT"),
+        ("caption_model", "TEXT"),
+        ("caption_ts", "INTEGER"),
+    ],
+    "audio": [("title", "TEXT"), ("context", "TEXT"), ("source_slug", "TEXT")],
+}
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, columns in MIGRATIONS.items():
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for name, decl in columns:
+            if name not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_art_who ON artworks(caption_who)")
+
 
 def connect(db_path: Path | str, *, init: bool = True) -> sqlite3.Connection:
     db_path = Path(db_path)
@@ -126,4 +166,5 @@ def connect(db_path: Path | str, *, init: bool = True) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     if init:
         conn.executescript(SCHEMA)
+        _migrate(conn)
     return conn

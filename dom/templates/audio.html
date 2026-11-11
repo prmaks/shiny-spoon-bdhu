@@ -3,14 +3,23 @@
 {% block main_class %}reading{% endblock %}
 {% block content %}
 <h1>Голоса и звуки</h1>
-{% if not items %}<p class="muted">Записей нет. Они ищутся в папках <code>голосовые/</code> и <code>звуки/</code>.</p>{% endif %}
-<ul class="audio">
-{% for a in items %}
-  <li id="a-{{ a.id }}">
-    <div class="audio-head"><strong>{{ a.filename }}</strong>
-      <span class="muted">{{ a.source }} · <a href="/timeline#d-{{ a.day }}">{{ a.day|ru_date }}</a> · {{ a.size_bytes|filesize }}{% if a.duration %} · {{ a.duration|duration }}{% endif %}</span></div>
-    <audio controls preload="none" src="/media/audio/{{ a.id }}"></audio>
-  </li>
+{% if not groups %}<p class="muted">Записей нет. Они ищутся в папках <code>голосовые/</code> и <code>звуки/</code>.</p>{% endif %}
+{% for day, items in groups %}
+<section class="audio-day" id="d-{{ day }}">
+  <h2><a href="/timeline#d-{{ day }}">{{ day|ru_date }}</a></h2>
+  <ul class="audio">
+  {% for a in items %}
+    <li id="a-{{ a.id }}">
+      <strong class="audio-title">{{ audio_title(a) }}</strong>
+      {% if a.context %}<p class="audio-context">{{ a.context }}</p>{% endif %}
+      <audio controls preload="none" src="/media/audio/{{ a.id }}"></audio>
+      <p class="audio-meta muted">
+        {%- if a.duration %}{{ a.duration|duration }} · {% endif %}{{ a.source }} · {{ a.size_bytes|filesize }}
+        {%- if a.source_slug %} · <a href="/stories/{{ a.source_slug }}">из рассказа „{{ a.story_title or a.source_slug }}“</a>{% endif -%}
+      </p>
+    </li>
+  {% endfor %}
+  </ul>
+</section>
 {% endfor %}
-</ul>
 {% endblock %}

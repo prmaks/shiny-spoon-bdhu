@@ -341,3 +341,71 @@ def extract_embedded(info: dict, exif: dict[str, str] | None = None) -> Embedded
     if meta.seed is not None:
         meta.seed = str(meta.seed)[:64]
     return meta
+
+
+# --- wardrobe --------------------------------------------------------------------
+
+# "**1. Чёрное золото хозяйки** — prose…"
+WARDROBE_ENTRY_RE = re.compile(r"^\*\*\s*(\d+)\s*[.)]\s*(.+?)\s*\*\*\s*(?:[—–:-]+\s*)?(.*)$")
+# "- промт: `…`", "- надето: …", "- фото: file.png"
+WARDROBE_FIELD_RE = re.compile(r"^\s*[-*]\s*(промт|промпт|prompt|надето|фото)\s*:\s*(.*)$", re.I)
+ART_TITLE_RE = re.compile(r"арт\s*«([^»]+)»", re.IGNORECASE)
+
+
+@dataclass
+class WardrobeItem:
+    section: str
+    position: int
+    number: str | None
+    title: str
+    prose: str = ""
+    prompt: str | None = None
+    worn_note: str | None = None
+    photo: str | None = None
+
+    @property
+    def art_title(self) -> str | None:
+        m = ART_TITLE_RE.search(self.worn_note or "")
+        return m.group(1).strip() if m else None
+
+
+def _unquote(value: str) -> str:
+    value = value.strip()
+    for left, right in ("``", "«»"):
+        if len(value) >= 2 and value[0] == left and value[-1] == right:
+            value = value[1:-1].strip()
+    return value
+
+
+def parse_wardrobe(text: str) -> list[WardrobeItem]:
+    """Entries of гардероб.md: bold numbered names inside "## Section" headings."""
+    items: list[WardrobeItem] = []
+    for s in split_sections(text).sections:
+        cur: WardrobeItem | None = None
+        prose: list[str] = []
+        for line in [*s.body.splitlines(), None]:  # None closes the last entry
+            m = WARDROBE_ENTRY_RE.match(line.strip()) if line is not None else None
+            if m or line is None:
+                if cur is not None:
+                    cur.prose = "\n".join(prose).strip()
+                prose.clear()
+                if line is None:
+                    break
+                cur = WardrobeItem(s.heading, len(items), m.group(1), m.group(2).strip())
+                items.append(cur)
+                prose.append(m.group(3))
+                continue
+            if cur is None:
+                continue
+            f = WARDROBE_FIELD_RE.match(line)
+            if not f:
+                prose.append(line)
+                continue
+            key, value = f.group(1).lower(), _unquote(f.group(2)) or None
+            if key == "надето":
+                cur.worn_note = value
+            elif key == "фото":
+                cur.photo = value
+            else:
+                cur.prompt = value
+    return items

@@ -6,16 +6,18 @@ import contextlib
 import hashlib
 import json
 import os
+import re
+import shutil
 import sqlite3
 import threading
 import time
 import unicodedata
-import wave
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+import mutagen
 from PIL import ExifTags, Image, ImageOps
 
 from .config import Config
@@ -23,6 +25,7 @@ from .parsing import (
     extract_embedded,
     parse_catalogue,
     parse_checksums,
+    parse_wardrobe,
     slugify,
     split_sections,
     unique_anchor,
@@ -38,7 +41,13 @@ CHECKSUMS = ("арты", "контрольные-суммы.txt")
 DIARY = "дневник.md"
 STORIES = "рассказы"
 WARDROBE = "гардероб.md"
-THUMB_MAX = 480
+THUMB_MAX = 1280
+THUMB_QUALITY = 82
+# Bump when thumbnail size/quality changes: ingest drops cache/thumbs and rebuilds.
+THUMBS_VERSION = "2"
+# Intermediates and reference photos that are not finished arts (matched case-insensitively).
+EXCLUDE_MARKERS = ("_depth", "_mask", "_preview", "_src_")
+_RAW_RE = re.compile("_raw", re.IGNORECASE)
 
 _lock = threading.Lock()
 
@@ -55,6 +64,9 @@ class IngestReport:
     artworks_new: int = 0
     artworks_updated: int = 0
     artworks_removed: int = 0
+    excluded: dict[str, int] = field(default_factory=dict)  # reason -> skipped files
+    captions: int = 0
+    wardrobe_items: int = 0
     catalogue_entries: int = 0
     catalogue_linked: int = 0
     catalogue_unlinked: list[str] = field(default_factory=list)
@@ -151,6 +163,20 @@ def derive_day(parts: list[str], mtime: float) -> str:
     return mtime_day(mtime)
 
 
+def excluded_reason(path: Path) -> str | None:
+    """Why an image is not a finished art (None if it is one)."""
+    name = path.name.lower()
+    for marker in EXCLUDE_MARKERS:
+        if marker in name:
+            return marker.strip("_")
+    if "_raw" in name:
+        # A raw intermediate is hidden only when its final copy sits next to it.
+        sibling = _RAW_RE.sub("", path.name)
+        if sibling and find_child(path.parent, sibling) is not None:
+            return "raw"
+    return None
+
+
 def thumb_path(cache_dir: Path, sha: str) -> Path:
     return cache_dir / "thumbs" / sha[:2] / f"{sha}.webp"
 
@@ -202,7 +228,7 @@ def make_thumbnail(im: Image.Image, dest: Path) -> None:
     frame.thumbnail((THUMB_MAX, THUMB_MAX), Image.Resampling.LANCZOS)
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-    frame.save(tmp, "WEBP", quality=80, method=4)
+    frame.save(tmp, "WEBP", quality=THUMB_QUALITY, method=4)
     tmp.replace(dest)
 
 
@@ -226,11 +252,15 @@ def _ingest(cfg: Config, conn: sqlite3.Connection, *, thumbnails: bool) -> Inges
         report.missing.append(str(data_dir))
     try:
         conn.execute("BEGIN")
+        if thumbnails:
+            _check_thumbs_version(cfg, conn)
         _ingest_artworks(cfg, conn, report, thumbnails)
+        _ingest_captions(cfg, conn, report)
         _ingest_checksums(conn, report, data_dir)
         _ingest_catalogue(conn, report, data_dir)
         _ingest_documents(conn, report, data_dir)
-        _ingest_audio(conn, report, data_dir)
+        _ingest_wardrobe(conn, report, data_dir)
+        _ingest_audio(cfg, conn, report)
         _rebuild_search(conn)
         report.duration_s = round(time.monotonic() - t0, 3)
         conn.execute(
@@ -242,6 +272,68 @@ def _ingest(cfg: Config, conn: sqlite3.Connection, *, thumbnails: bool) -> Inges
         conn.execute("ROLLBACK")
         raise
     return report
+
+
+def _check_thumbs_version(cfg: Config, conn: sqlite3.Connection) -> None:
+    row = conn.execute("SELECT value FROM meta WHERE key = 'thumbs_version'").fetchone()
+    if row is None or row[0] != THUMBS_VERSION:
+        shutil.rmtree(cfg.cache_dir / "thumbs", ignore_errors=True)
+        conn.execute(
+            "INSERT OR REPLACE INTO meta(key, value) VALUES ('thumbs_version', ?)",
+            (THUMBS_VERSION,),
+        )
+
+
+def _read_jsonl(path: Path, report: IngestReport) -> list[dict]:
+    """Records of a JSONL sidecar; a missing file is simply empty."""
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except FileNotFoundError:
+        return []
+    except OSError as exc:
+        report.problem(str(path), f"не удалось прочитать: {exc}")
+        return []
+    out, bad = [], []
+    for n, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            rec = None
+        if isinstance(rec, dict):
+            out.append(rec)
+        else:
+            bad.append(n)
+    if bad:
+        report.problem(str(path), f"нераспознанные строки: {', '.join(map(str, bad[:20]))}")
+    return out
+
+
+def _ingest_captions(cfg: Config, conn: sqlite3.Connection, report: IngestReport) -> None:
+    conn.execute(
+        "UPDATE artworks SET caption=NULL, caption_who=NULL, caption_model=NULL, caption_ts=NULL"
+    )
+    by_sha: dict[str, dict] = {}
+    for rec in _read_jsonl(cfg.captions_file, report):
+        sha, caption = rec.get("sha256"), rec.get("caption")
+        if isinstance(sha, str) and isinstance(caption, str) and caption.strip():
+            by_sha[sha.lower()] = rec  # later lines win
+    for sha, rec in by_sha.items():
+        who = rec.get("who") if rec.get("who") in ("shinobu", "other", "none") else None
+        ts = rec.get("ts")
+        cur = conn.execute(
+            "UPDATE artworks SET caption=?, caption_who=?, caption_model=?, caption_ts=? "
+            "WHERE sha256=?",
+            (
+                rec["caption"].strip(),
+                who,
+                str(rec["model"]) if rec.get("model") else None,
+                int(ts) if isinstance(ts, int | float) else None,
+                sha,
+            ),
+        )
+        report.captions += cur.rowcount
 
 
 def _ingest_artworks(
@@ -261,6 +353,10 @@ def _ingest_artworks(
         for path in walk_files(root, IMAGE_EXTS, report, data_dir):
             relpath = rel(path, data_dir)
             if relpath in seen:
+                continue
+            reason = excluded_reason(path)
+            if reason:  # not added to `seen`, so an existing row is pruned below
+                report.excluded[reason] = report.excluded.get(reason, 0) + 1
                 continue
             seen.add(relpath)
             try:
@@ -522,36 +618,74 @@ def _ingest_documents(conn: sqlite3.Connection, report: IngestReport, data_dir: 
             _store_doc(conn, "story", slug, path, data_dir, title, day, parsed)
             report.stories += 1
 
-    wardrobe = find_child(data_dir, WARDROBE)
-    if wardrobe is None:
+
+def _ingest_wardrobe(conn: sqlite3.Connection, report: IngestReport, data_dir: Path) -> None:
+    conn.execute("DELETE FROM wardrobe_items")
+    path = find_child(data_dir, WARDROBE)
+    if path is None:
         report.missing.append(WARDROBE)
-    else:
-        text = read_text(wardrobe, report, data_dir)
-        if text is not None:
-            parsed = split_sections(text)
-            _store_doc(
-                conn,
-                "wardrobe",
-                "гардероб",
-                wardrobe,
-                data_dir,
-                parsed.title or "Гардероб",
-                None,
-                parsed,
-            )
-            report.wardrobe = True
+        return
+    text = read_text(path, report, data_dir)
+    if text is None:
+        return
+    report.wardrobe = True
+    by_file: dict[str, int] = {}
+    by_stem: dict[str, int] = {}
+    # Newest first, so the first match kept for a duplicated name is the newest art.
+    for r in conn.execute("SELECT id, filename FROM artworks ORDER BY day DESC, path"):
+        name = r["filename"]
+        by_file.setdefault(name, r["id"])
+        by_stem.setdefault(Path(name).stem.casefold(), r["id"])
+    by_title: dict[str, int] = {}
+    for r in conn.execute(
+        """SELECT c.title, a.id FROM catalogue c JOIN artworks a ON a.catalogue_id = c.id
+           ORDER BY a.day DESC, a.path"""
+    ):
+        by_title.setdefault(r["title"].casefold(), r["id"])
+    for item in parse_wardrobe(text):
+        art_id = by_file.get(_nfc(item.photo)) if item.photo else None
+        if art_id is None and item.art_title:
+            key = _nfc(item.art_title).casefold()
+            art_id = by_title.get(key) or by_stem.get(key)
+        conn.execute(
+            """INSERT INTO wardrobe_items(section, position, number, title, prose, prompt,
+                                          worn_note, photo, art_id)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (
+                item.section,
+                item.position,
+                item.number,
+                item.title,
+                item.prose,
+                item.prompt,
+                item.worn_note,
+                item.photo,
+                art_id,
+            ),
+        )
+        report.wardrobe_items += 1
 
 
-def _wav_duration(path: Path) -> float | None:
+def audio_duration(path: Path) -> float | None:
     try:
-        with wave.open(str(path), "rb") as w:
-            rate = w.getframerate()
-            return round(w.getnframes() / rate, 2) if rate else None
-    except (wave.Error, EOFError, OSError):
+        info = mutagen.File(path)
+        length = info.info.length if info is not None else None
+    except Exception:
         return None
+    return round(length, 2) if length else None
 
 
-def _ingest_audio(conn: sqlite3.Connection, report: IngestReport, data_dir: Path) -> None:
+def _ingest_audio(cfg: Config, conn: sqlite3.Connection, report: IngestReport) -> None:
+    data_dir = cfg.data_dir
+    voices: dict[str, dict] = {}
+    for rec in _read_jsonl(cfg.voices_file, report):
+        if isinstance(rec.get("filename"), str):
+            voices[_nfc(rec["filename"].strip())] = rec
+
+    def text(rec: dict, key: str) -> str | None:
+        value = rec.get(key)
+        return value.strip() or None if isinstance(value, str) else None
+
     seen: set[str] = set()
     for root_name in AUDIO_ROOTS:
         root = find_child(data_dir, root_name)
@@ -563,25 +697,29 @@ def _ingest_audio(conn: sqlite3.Connection, report: IngestReport, data_dir: Path
             try:
                 st = path.stat()
                 parts = list(Path(rel(path, root)).parts)
-                ext = path.suffix.lower().lstrip(".")
-                duration = _wav_duration(path) if ext == "wav" else None
+                name = _nfc(path.name)
+                voice = voices.get(name, {})
                 conn.execute(
                     """INSERT INTO audio(path, filename, source, day, ext, size_bytes, mtime,
-                                         duration)
-                       VALUES (?,?,?,?,?,?,?,?)
+                                         duration, title, context, source_slug)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?)
                        ON CONFLICT(path) DO UPDATE SET filename=excluded.filename,
                          source=excluded.source, day=excluded.day, ext=excluded.ext,
                          size_bytes=excluded.size_bytes, mtime=excluded.mtime,
-                         duration=excluded.duration""",
+                         duration=excluded.duration, title=excluded.title,
+                         context=excluded.context, source_slug=excluded.source_slug""",
                     (
                         relpath,
-                        _nfc(path.name),
+                        name,
                         _nfc(root.name),
                         derive_day(parts, st.st_mtime),
-                        ext,
+                        path.suffix.lower().lstrip("."),
                         st.st_size,
                         st.st_mtime,
-                        duration,
+                        audio_duration(path),
+                        text(voice, "title"),
+                        text(voice, "context"),
+                        text(voice, "source_slug"),
                     ),
                 )
                 seen.add(relpath)
@@ -595,12 +733,13 @@ def _ingest_audio(conn: sqlite3.Connection, report: IngestReport, data_dir: Path
 
 def _rebuild_search(conn: sqlite3.Connection) -> None:
     conn.execute("DELETE FROM search")
+    # The caption leads the body so search snippets prefer it.
     conn.execute(
         """INSERT INTO search(kind, ref, day, title, body)
            SELECT 'art', a.id, a.day,
                   a.filename || ' ' || COALESCE(c.title, ''),
-                  COALESCE(c.prose, '') || ' ' || COALESCE(a.prompt, '') || ' '
-                  || COALESCE(a.model, '') || ' ' || a.folder
+                  COALESCE(a.caption, '') || ' ' || COALESCE(c.prose, '') || ' '
+                  || COALESCE(a.prompt, '') || ' ' || COALESCE(a.model, '') || ' ' || a.folder
            FROM artworks a LEFT JOIN catalogue c ON c.id = a.catalogue_id"""
     )
     conn.execute(
@@ -612,4 +751,11 @@ def _rebuild_search(conn: sqlite3.Connection) -> None:
         """INSERT INTO search(kind, ref, day, title, body)
            SELECT d.kind, d.slug, d.day, d.title, d.preamble
            FROM documents d WHERE d.preamble != '' OR d.kind = 'story'"""
+    )
+    conn.execute(
+        """INSERT INTO search(kind, ref, day, title, body)
+           SELECT 'wardrobe', 'гардероб#w-' || w.position, NULL,
+                  COALESCE(w.number || '. ', '') || w.title,
+                  w.prose || ' ' || COALESCE(w.prompt, '') || ' ' || COALESCE(w.worn_note, '')
+           FROM wardrobe_items w"""
     )

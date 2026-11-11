@@ -1,0 +1,44 @@
+{# Full-screen viewer for links marked data-lightbox; without JS the link opens the file. #}
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Просмотр" hidden>
+  <button type="button" class="lightbox-close" aria-label="Закрыть">×</button>
+  <figure>
+    <img alt="">
+    <figcaption></figcaption>
+  </figure>
+</div>
+<script>
+(() => {
+  const box = document.getElementById("lightbox");
+  const img = box.querySelector("img");
+  const cap = box.querySelector("figcaption");
+  const close = box.querySelector(".lightbox-close");
+  let opener = null;
+  function hide() {
+    box.hidden = true;
+    img.removeAttribute("src");
+    document.documentElement.classList.remove("locked");
+    if (opener) opener.focus();
+  }
+  document.addEventListener("click", (e) => {
+    const link = e.target.closest("a[data-lightbox]");
+    if (link) {
+      e.preventDefault();
+      opener = link;
+      img.src = link.href;
+      img.alt = link.dataset.caption || "";
+      cap.textContent = link.dataset.caption || "";
+      cap.hidden = !cap.textContent;
+      box.hidden = false;
+      document.documentElement.classList.add("locked");
+      close.focus();
+    } else if (!box.hidden && box.contains(e.target)) {
+      hide();
+    }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (box.hidden) return;
+    if (e.key === "Escape") hide();
+    if (e.key === "Tab") { e.preventDefault(); close.focus(); }  // the only focusable control
+  });
+})();
+</script>

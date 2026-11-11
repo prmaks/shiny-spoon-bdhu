@@ -69,7 +69,7 @@ def test_timeline_and_reading(client):
     assert "Лесная сказка" in client.get("/stories").text
     r = client.get("/stories/2025-03-15-лес")
     assert r.status_code == 200 and 'id="глава-первая"' in r.text
-    assert "синее" in client.get("/wardrobe").text
+    assert "Синее платье" in client.get("/wardrobe").text
     assert "<audio" in client.get("/audio").text
 
 

@@ -12,12 +12,12 @@
     </ol></details>
   </nav>
   {% endif %}
-  {% if doc.preamble %}<div class="prose">{{ md(doc.preamble) }}</div>{% endif %}
+  {% if doc.preamble %}<div class="prose">{{ md(doc.preamble, base=doc.path.rpartition("/")[0]) }}</div>{% endif %}
   {% for s in sections %}
   <section id="{{ s.anchor }}">
     <h2>{% if s.day %}<time datetime="{{ s.day }}">{{ s.day|ru_date }}</time>{% if s.title %} — {% endif %}{% endif %}{{ s.title }}
       <a class="anchor" href="#{{ s.anchor }}" aria-label="Ссылка на раздел">#</a></h2>
-    <div class="prose">{{ md(s.body, heading_shift=1) }}</div>
+    <div class="prose">{{ md(s.body, heading_shift=1, base=doc.path.rpartition("/")[0]) }}</div>
     {% if s.day and doc.kind == 'diary' %}<p class="aside"><a href="/timeline#d-{{ s.day }}">этот день в хронике →</a></p>{% endif %}
   </section>
   {% endfor %}

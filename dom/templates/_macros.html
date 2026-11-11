@@ -1,11 +1,25 @@
-{% macro tile(a) -%}
-<a class="tile" href="/art/{{ a.id }}" title="{{ a.cat_title or a.filename }}">
-  {% if a.has_thumb %}
-  <img src="/thumb/{{ a.sha256 }}.webp" alt="{{ a.cat_title or a.filename }}" loading="lazy" decoding="async">
-  {% else %}
-  <span class="nothumb">{{ a.filename }}</span>
+{% macro who_pill(who) -%}
+{% if who_labels.get(who) %}<span class="pill">{{ who_labels[who] }}</span>{% endif %}
+{%- endmacro %}
+
+{% macro tile(a, compact=false) -%}
+{% set title = a.cat_title or a.filename %}
+<a class="tile" href="/art/{{ a.id }}" title="{{ title }}">
+  <span class="frame">
+    {% if a.has_thumb %}
+    <img src="/thumb/{{ a.sha256 }}.webp?v={{ thumbs_version }}" alt="{{ title }}" loading="lazy" decoding="async">
+    {% else %}
+    <span class="nothumb">{{ a.filename }}</span>
+    {% endif %}
+    {{ who_pill(a.caption_who) }}
+  </span>
+  {% if not compact %}
+  <span class="cap">
+    <span class="cap-title">{{ title }}</span>
+    {% if a.snippet %}<span class="cap-text">{{ a.snippet|safe }}</span>
+    {% elif a.caption %}<span class="cap-text">{{ a.caption }}</span>{% endif %}
+  </span>
   {% endif %}
-  <span class="cap">{{ a.cat_title or a.filename }}</span>
 </a>
 {%- endmacro %}
 

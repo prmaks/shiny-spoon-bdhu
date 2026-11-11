@@ -30,6 +30,11 @@ def cmd_ingest(cfg: Config, args: argparse.Namespace) -> int:
         f"  арты: {report['artworks']} (новых {report['artworks_new']}, "
         f"обновлено {report['artworks_updated']}, удалено {report['artworks_removed']})"
     )
+    excluded = report["excluded"]
+    if excluded:
+        detail = ", ".join(f"{k} {v}" for k, v in sorted(excluded.items()))
+        print(f"  пропущено промежуточных: {sum(excluded.values())} ({detail})")
+    print(f"  подписей: {report['captions']}; гардероб: {report['wardrobe_items']} образов")
     print(
         f"  каталог: {report['catalogue_entries']} записей, "
         f"связано {report['catalogue_linked']}, без файла {len(report['catalogue_unlinked'])}"
@@ -95,6 +100,8 @@ def cmd_stats(cfg: Config, args: argparse.Namespace) -> int:
         _print_json(s)
         return 0
     print(f"Артов: {s['artworks']} (в каталоге: {s['artworks_catalogued']})")
+    who = ", ".join(f"{k} {v}" for k, v in s["captions_by_who"].items())
+    print(f"С подписью: {s['artworks_captioned']}" + (f" ({who})" if who else ""))
     print(f"Записей каталога: {s['catalogue_entries']}")
     print(f"Записей дневника: {s['diary_entries']}")
     print(f"Рассказов: {s['stories']}")

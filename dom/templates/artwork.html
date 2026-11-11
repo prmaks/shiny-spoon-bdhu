@@ -1,7 +1,8 @@
 {% extends "base.html" %}
-{% from "_macros.html" import tile %}
+{% from "_macros.html" import tile, who_pill %}
 {% block title %}{{ a.cat_title or a.filename }}{% endblock %}
 {% block content %}
+{% set title = a.cat_title or a.filename %}
 <nav class="prevnext">
   {% if prev %}<a href="/art/{{ prev.id }}" rel="prev">← {{ prev.filename }}</a>{% else %}<span></span>{% endif %}
   <a href="/?date_from={{ a.day }}&amp;date_to={{ a.day }}">все за {{ a.day|ru_date }}</a>
@@ -9,14 +10,14 @@
 </nav>
 <article class="artwork">
   <figure>
-    <a href="/media/art/{{ a.id }}" target="_blank" title="Открыть в полном размере">
-      <img src="/media/art/{{ a.id }}" alt="{{ a.cat_title or a.filename }}"
-           {% if a.width %}width="{{ a.width }}" height="{{ a.height }}"{% endif %}>
+    <a href="/media/art/{{ a.id }}" data-lightbox data-caption="{{ a.caption or title }}" title="Открыть в полном размере">
+      <img src="{% if a.has_thumb %}/thumb/{{ a.sha256 }}.webp?v={{ thumbs_version }}{% else %}/media/art/{{ a.id }}{% endif %}"
+           alt="{{ title }}" {% if a.width %}width="{{ a.width }}" height="{{ a.height }}"{% endif %}>
     </a>
-    <figcaption><a href="/media/art/{{ a.id }}" target="_blank">Открыть в полном размере ↗</a></figcaption>
   </figure>
   <div class="about">
-    <h1>{{ a.cat_title or a.filename }}</h1>
+    <h1>{{ title }} {{ who_pill(a.caption_who) }}</h1>
+    {% if a.caption %}<p class="lead">{{ a.caption }}</p>{% endif %}
     <table class="meta">
       <tr><th>Файл</th><td><code>{{ a.path }}</code></td></tr>
       <tr><th>Дата</th><td><a href="/timeline#d-{{ a.day }}">{{ a.day|ru_date(true) }}</a></td></tr>
@@ -46,7 +47,8 @@
 {% if related %}
 <section>
   <h2>Из той же сессии</h2>
-  <div class="grid small">{% for r in related %}{{ tile(r) }}{% endfor %}</div>
+  <div class="grid small">{% for r in related %}{{ tile(r, compact=true) }}{% endfor %}</div>
 </section>
 {% endif %}
 {% endblock %}
+{% block scripts %}{% include "_lightbox.html" %}{% endblock %}

@@ -27,6 +27,20 @@ class Config:
     host: str = "127.0.0.1"
     port: int = 8000
     pick_cooldown_days: int = 5
+    captions_path: Path | None = None  # default: <state dir>/captions.jsonl
+    voices_path: Path | None = None  # default: <state dir>/voices.jsonl
+
+    @property
+    def state_dir(self) -> Path:
+        return self.db_path.parent
+
+    @property
+    def captions_file(self) -> Path:
+        return self.captions_path or self.state_dir / "captions.jsonl"
+
+    @property
+    def voices_file(self) -> Path:
+        return self.voices_path or self.state_dir / "voices.jsonl"
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> Config:
@@ -39,6 +53,8 @@ class Config:
             cooldown = int(env.get("DOM_PICK_COOLDOWN_DAYS") or 5)
         except ValueError as exc:
             raise ConfigError(f"Некорректное числовое значение в окружении: {exc}") from exc
+        captions = env.get("DOM_CAPTIONS")
+        voices = env.get("DOM_VOICES")
         cfg = cls(
             data_dir=data_dir,
             db_path=db_path,
@@ -46,6 +62,8 @@ class Config:
             host=env.get("DOM_HOST") or "127.0.0.1",
             port=port,
             pick_cooldown_days=max(0, cooldown),
+            captions_path=Path(captions).expanduser() if captions else None,
+            voices_path=Path(voices).expanduser() if voices else None,
         )
         cfg.validate()
         return cfg

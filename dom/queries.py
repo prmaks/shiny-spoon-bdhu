@@ -8,6 +8,8 @@ import re
 import sqlite3
 from dataclasses import dataclass
 
+from .parsing import slugify, unique_anchor
+
 PER_PAGE = 60
 TIMELINE_DAYS = 14
 TIMELINE_ARTS_PER_DAY = 24
@@ -31,11 +33,15 @@ class LibraryFilters:
     source: str = ""
     catalogued: str = ""  # "", "yes", "no"
     model: str = ""
+    who: str = ""  # "", "shinobu", "other", "none"
     page: int = 1
 
     def where(self) -> tuple[list[str], list]:
         clauses: list[str] = []
         params: list = []
+        if self.who in ("shinobu", "other", "none"):
+            clauses.append("a.caption_who = ?")
+            params.append(self.who)
         if self.date_from:
             clauses.append("a.day >= ?")
             params.append(self.date_from)
@@ -56,7 +62,12 @@ class LibraryFilters:
 
 
 ART_COLUMNS = """a.id, a.path, a.filename, a.source, a.folder, a.day, a.width, a.height,
-                 a.sha256, a.has_thumb, a.model, a.catalogue_id, c.title AS cat_title"""
+                 a.sha256, a.has_thumb, a.model, a.catalogue_id, c.title AS cat_title,
+                 a.caption, a.caption_who"""
+
+
+def _marked(snip: str | None) -> str:
+    return html.escape(snip or "").replace("\x02", "<mark>").replace("\x03", "</mark>")
 
 
 def library(conn: sqlite3.Connection, f: LibraryFilters, per_page: int = PER_PAGE):
@@ -75,12 +86,29 @@ def library(conn: sqlite3.Connection, f: LibraryFilters, per_page: int = PER_PAG
     total = conn.execute(f"SELECT COUNT(*) FROM artworks a {join} {where}", params).fetchone()[0]
     pages = max(1, -(-total // per_page))
     page = min(max(1, f.page), pages)
-    rows = conn.execute(
-        f"""SELECT {ART_COLUMNS} FROM artworks a {join}
-            LEFT JOIN catalogue c ON c.id = a.catalogue_id
-            {where} ORDER BY {order} LIMIT ? OFFSET ?""",
-        [*params, per_page, (page - 1) * per_page],
-    ).fetchall()
+    rows = [
+        dict(r)
+        for r in conn.execute(
+            f"""SELECT {ART_COLUMNS} FROM artworks a {join}
+                LEFT JOIN catalogue c ON c.id = a.catalogue_id
+                {where} ORDER BY {order} LIMIT ? OFFSET ?""",
+            [*params, per_page, (page - 1) * per_page],
+        )
+    ]
+    snippets: dict[int, str] = {}
+    if match and rows:
+        # Snippets only for the visible page; shown instead of the caption when the hit
+        # is in the text rather than the title.
+        ids = [r["id"] for r in rows]
+        for ref, snip in conn.execute(
+            f"""SELECT ref, snippet(search, 4, char(2), char(3), '…', 12) FROM search
+                WHERE search MATCH ? AND kind = 'art' AND ref IN ({",".join("?" * len(ids))})""",
+            [match, *ids],
+        ):
+            if "\x02" in (snip or ""):
+                snippets[int(ref)] = _marked(snip)
+    for r in rows:
+        r["snippet"] = snippets.get(r["id"])
     return rows, total, page, pages
 
 
@@ -191,6 +219,7 @@ def timeline(conn: sqlite3.Connection, page: int = 1, days_per_page: int = TIMEL
     for r in conn.execute(
         f"""SELECT * FROM (
                 SELECT a.id, a.filename, a.day, a.sha256, a.has_thumb, a.width, a.height,
+                       a.caption, a.caption_who,
                        c.title AS cat_title,
                        ROW_NUMBER() OVER (PARTITION BY a.day ORDER BY a.path) AS rn,
                        COUNT(*) OVER (PARTITION BY a.day) AS cnt
@@ -224,7 +253,37 @@ def documents_of_kind(conn: sqlite3.Connection, kind: str):
 
 
 def audio_list(conn: sqlite3.Connection):
-    return conn.execute("SELECT * FROM audio ORDER BY day DESC, path").fetchall()
+    return conn.execute(
+        """SELECT a.*, d.title AS story_title FROM audio a
+           LEFT JOIN documents d ON d.slug = a.source_slug AND d.kind = 'story'
+           ORDER BY a.day DESC, a.path"""
+    ).fetchall()
+
+
+def audio_groups(conn: sqlite3.Connection) -> list[tuple[str, list[sqlite3.Row]]]:
+    groups: dict[str, list[sqlite3.Row]] = {}
+    for r in audio_list(conn):
+        groups.setdefault(r["day"], []).append(r)
+    return list(groups.items())
+
+
+def wardrobe(conn: sqlite3.Connection) -> list[dict]:
+    """Wardrobe sections in file order, each with its cards and a heading anchor."""
+    sections: dict[str, dict] = {}
+    used: set[str] = set()
+    for r in conn.execute(
+        """SELECT w.*, a.sha256, a.has_thumb, a.width, a.height,
+                  COALESCE(c.title, a.filename) AS art_title
+           FROM wardrobe_items w
+           LEFT JOIN artworks a ON a.id = w.art_id
+           LEFT JOIN catalogue c ON c.id = a.catalogue_id
+           ORDER BY w.position"""
+    ):
+        if r["section"] not in sections:
+            anchor = unique_anchor(slugify(r["section"]), used)
+            sections[r["section"]] = {"title": r["section"], "anchor": anchor, "items": []}
+        sections[r["section"]]["items"].append(r)
+    return list(sections.values())
 
 
 def stats(conn: sqlite3.Connection) -> dict:
@@ -233,6 +292,17 @@ def stats(conn: sqlite3.Connection) -> dict:
     return {
         "artworks": one("SELECT COUNT(*) FROM artworks"),
         "artworks_catalogued": one("SELECT COUNT(*) FROM artworks WHERE catalogue_id IS NOT NULL"),
+        "artworks_captioned": one("SELECT COUNT(*) FROM artworks WHERE caption IS NOT NULL"),
+        "captions_by_who": {
+            r[0]: r[1]
+            for r in conn.execute(
+                "SELECT caption_who, COUNT(*) FROM artworks "
+                "WHERE caption IS NOT NULL AND caption_who IS NOT NULL "
+                "GROUP BY caption_who ORDER BY 2 DESC"
+            )
+        },
+        "wardrobe_items": one("SELECT COUNT(*) FROM wardrobe_items"),
+        "wardrobe_with_photo": one("SELECT COUNT(*) FROM wardrobe_items WHERE art_id IS NOT NULL"),
         "catalogue_entries": one("SELECT COUNT(*) FROM catalogue"),
         "diary_entries": one(
             "SELECT COUNT(*) FROM sections s JOIN documents d ON d.id = s.doc_id "

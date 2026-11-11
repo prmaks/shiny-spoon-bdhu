@@ -17,7 +17,10 @@ from fastapi.templating import Jinja2Templates
 from . import markup, picker, queries
 from .config import Config
 from .db import connect
-from .ingest import IngestBusy, ingest, thumb_path
+from .files import ALL_TYPES, Rejected, Resolver, data_file
+from .files import MEDIA_TYPES as FILE_TYPES
+from .ingest import THUMBS_VERSION, IngestBusy, ingest, thumb_path
+from .parsing import valid_date
 
 HERE = Path(__file__).parent
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -48,6 +51,41 @@ MONTHS = (
 )
 WEEKDAYS = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
 KIND_LABELS = {"diary": "Дневник", "story": "Рассказ", "wardrobe": "Гардероб"}
+WHO_LABELS = {"other": "не я", "none": "без людей"}
+
+
+def plural(n: int, one: str, few: str, many: str) -> str:
+    n = abs(int(n))
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return few
+    return many
+
+
+def short_date(value: str | None) -> str:
+    """'2026-11-11' -> '11 ноября' (no year)."""
+    try:
+        d = date.fromisoformat((value or "")[:10])
+    except ValueError:
+        return value or ""
+    return f"{d.day} {MONTHS[d.month - 1]}"
+
+
+def audio_title(a) -> str:
+    """Sidecar title, else a human one from the file name: '2026-11-11.ogg' ->
+    'Голосовое, 11 ноября'; '2026-11-11-утро.ogg' -> 'Утро, 11 ноября'."""
+    if a["title"]:
+        return a["title"]
+    stem = Path(a["filename"]).stem
+    day = valid_date(stem)
+    rest = stem.replace(day, "", 1) if day else stem
+    rest = re.sub(r"[\s_-]+", " ", rest).strip()
+    rest = rest[:1].upper() + rest[1:]
+    if not day:
+        return rest or a["filename"]
+    kind = "Звук" if a["source"] == "звуки" else "Голосовое"
+    return f"{rest or kind}, {short_date(day)}"
 
 
 def ru_date(value: str | None, weekday: bool = False) -> str:
@@ -87,8 +125,23 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
     env = templates.env
-    env.filters.update(ru_date=ru_date, filesize=filesize, duration=duration)
-    env.globals.update(md=markup.render, excerpt=markup.excerpt, kind_labels=KIND_LABELS)
+    resolver = Resolver(cfg.data_dir)
+
+    def md(text: str, heading_shift: int = 0, base: str = ""):
+        """Render markdown; ``base`` is the source file's folder for relative media refs."""
+        return markup.render(text, heading_shift=heading_shift, resolve=lambda t: resolver(t, base))
+
+    env.filters.update(
+        ru_date=ru_date, filesize=filesize, duration=duration, plural=plural, short_date=short_date
+    )
+    env.globals.update(
+        md=md,
+        excerpt=markup.excerpt,
+        kind_labels=KIND_LABELS,
+        who_labels=WHO_LABELS,
+        thumbs_version=THUMBS_VERSION,
+        audio_title=audio_title,
+    )
 
     def get_conn() -> Iterator[sqlite3.Connection]:
         conn = connect(cfg.db_path, init=False)
@@ -126,9 +179,12 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         source: str = "",
         catalogued: str = "",
         model: str = "",
+        who: str = "",
         page_no: Annotated[int, Query(alias="page", ge=1)] = 1,
     ):
-        f = queries.LibraryFilters(q, date_from, date_to, source, catalogued, model, page_no)
+        f = queries.LibraryFilters(
+            q, date_from, date_to, source, catalogued, model, who=who, page=page_no
+        )
         rows, total, cur, pages = queries.library(conn, f)
         return page(
             request,
@@ -175,7 +231,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
 
     @app.get("/wardrobe")
     def wardrobe_page(request: Request, conn: Conn):
-        return reading(request, conn, "гардероб")
+        return page(request, "wardrobe.html", sections=queries.wardrobe(conn))
 
     @app.get("/stories")
     def stories_page(request: Request, conn: Conn):
@@ -190,7 +246,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
 
     @app.get("/audio")
     def audio_page(request: Request, conn: Conn):
-        return page(request, "audio.html", items=queries.audio_list(conn))
+        return page(request, "audio.html", groups=queries.audio_groups(conn))
 
     @app.get("/pick")
     def pick_page(request: Request, conn: Conn):
@@ -198,6 +254,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             request,
             "pick.html",
             result=picker.last_pick(conn),
+            pool=picker.pool_size(conn, cfg.pick_cooldown_days),
             history=picker.history(conn),
             cooldown=cfg.pick_cooldown_days,
         )
@@ -249,6 +306,23 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         if row is None:
             raise HTTPException(404, "Запись не найдена")
         return FileResponse(safe_media_path(row["path"]), media_type=MEDIA_TYPES.get(row["ext"]))
+
+    def serve_data_file(relpath: str, types: dict[str, str]) -> FileResponse:
+        try:
+            full, ctype = data_file(cfg.data_dir, relpath, types)
+        except Rejected as exc:
+            raise HTTPException(exc.status, "Файл не найден") from None
+        return FileResponse(full, media_type=ctype, headers={"X-Content-Type-Options": "nosniff"})
+
+    @app.get("/page/{relpath:path}")
+    def data_page(relpath: str):
+        """Interactive pages next to stories, with the assets they load."""
+        return serve_data_file(relpath, ALL_TYPES)
+
+    @app.get("/media/file/{relpath:path}")
+    def media_file(relpath: str):
+        """Images and audio referenced from stories."""
+        return serve_data_file(relpath, FILE_TYPES)
 
     @app.get("/thumb/{sha}.webp")
     def thumb(sha: str):

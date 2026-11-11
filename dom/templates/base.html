@@ -9,7 +9,7 @@
 <body>
   <header class="site">
     <a class="brand" href="/">Дом Шинобу</a>
-    <nav>
+    <nav aria-label="Разделы">
       {% set p = request.url.path %}
       <a href="/" {% if p == '/' or p.startswith('/art') %}aria-current="page"{% endif %}>Библиотека</a>
       <a href="/timeline" {% if p.startswith('/timeline') %}aria-current="page"{% endif %}>Хроника</a>
@@ -24,5 +24,11 @@
   <main class="{% block main_class %}{% endblock %}">
     {% block content %}{% endblock %}
   </main>
+  {% block scripts %}{% endblock %}
+  <script>
+    // Keep the active section visible in the horizontally scrolling nav.
+    const cur = document.querySelector('header.site [aria-current="page"]');
+    if (cur) cur.parentElement.scrollLeft = cur.offsetLeft - cur.parentElement.offsetLeft - 16;
+  </script>
 </body>
 </html>

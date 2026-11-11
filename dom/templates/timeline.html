@@ -20,7 +20,7 @@
   </article>
   {% endfor %}
   {% if g.arts %}
-  <div class="grid small">{% for a in g.arts %}{{ tile(a) }}{% endfor %}</div>
+  <div class="grid small">{% for a in g.arts %}{{ tile(a, compact=true) }}{% endfor %}</div>
   {% if g.arts_total > g.arts|length %}
   <p><a href="/?date_from={{ g.day }}&amp;date_to={{ g.day }}">ещё {{ g.arts_total - g.arts|length }} → все арты дня</a></p>
   {% endif %}

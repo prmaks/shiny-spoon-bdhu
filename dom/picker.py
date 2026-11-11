@@ -7,6 +7,8 @@ import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from .ingest import THUMBS_VERSION
+
 TS_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
@@ -24,8 +26,19 @@ def _art_dict(row: sqlite3.Row) -> dict:
         "model": row["model"],
         "url": f"/art/{row['id']}",
         "image": f"/media/art/{row['id']}",
-        "thumb": f"/thumb/{row['sha256']}.webp" if row["has_thumb"] else None,
+        "thumb": f"/thumb/{row['sha256']}.webp?v={THUMBS_VERSION}" if row["has_thumb"] else None,
     }
+
+
+def pool_size(conn: sqlite3.Connection, cooldown_days: int, now: datetime | None = None) -> int:
+    """How many artworks the next pick draws from (everything once all are on cooldown)."""
+    cutoff = _ts((now or datetime.now(UTC)) - timedelta(days=cooldown_days))
+    eligible = conn.execute(
+        """SELECT COUNT(*) FROM artworks WHERE id NOT IN
+           (SELECT artwork_id FROM picks WHERE picked_at > ?)""",
+        (cutoff,),
+    ).fetchone()[0]
+    return eligible or conn.execute("SELECT COUNT(*) FROM artworks").fetchone()[0]
 
 
 def pick(

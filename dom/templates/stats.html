@@ -5,6 +5,8 @@
 <h1>Статистика</h1>
 <table class="meta">
   <tr><th>Артов</th><td>{{ s.artworks }} (в каталоге: {{ s.artworks_catalogued }})</td></tr>
+  <tr><th>С подписью</th><td>{{ s.artworks_captioned }}{% if s.captions_by_who %} ({% for who, n in s.captions_by_who.items() %}{{ {'shinobu': 'я', 'other': 'другая', 'none': 'без людей'}.get(who, who) }}: {{ n }}{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}</td></tr>
+  <tr><th>Гардероб</th><td>{{ s.wardrobe_items }} образов, с фото {{ s.wardrobe_with_photo }}</td></tr>
   <tr><th>Записей каталога</th><td>{{ s.catalogue_entries }}</td></tr>
   <tr><th>Записей дневника</th><td>{{ s.diary_entries }}</td></tr>
   <tr><th>Рассказов</th><td>{{ s.stories }}</td></tr>
@@ -18,7 +20,7 @@
 {% set r = s.last_ingest %}
 {% if r %}
 <h2>Последняя индексация</h2>
-<p class="muted">{{ r.started_at }}, {{ r.duration_s }} с; новых артов {{ r.artworks_new }}, обновлено {{ r.artworks_updated }}, удалено {{ r.artworks_removed }}, миниатюр {{ r.thumbnails_created }}; контрольных сумм совпало {{ r.checksums_ok }}.</p>
+<p class="muted">{{ r.started_at }}, {{ r.duration_s }} с; новых артов {{ r.artworks_new }}, обновлено {{ r.artworks_updated }}, удалено {{ r.artworks_removed }}, миниатюр {{ r.thumbnails_created }}; контрольных сумм совпало {{ r.checksums_ok }}{% if r.excluded %}; пропущено промежуточных {{ r.excluded.values()|sum }} ({% for k, v in r.excluded|dictsort %}{{ k }} {{ v }}{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}.</p>
 {% if r.missing %}<h3>Не найдено</h3><ul>{% for m in r.missing %}<li><code>{{ m }}</code></li>{% endfor %}</ul>{% endif %}
 {% if r.problems %}<h3>Проблемы</h3><ul>{% for p in r.problems %}<li><code>{{ p.path }}</code> — {{ p.error }}</li>{% endfor %}</ul>{% endif %}
 {% if r.checksum_mismatches %}<h3>Контрольная сумма не совпадает</h3><ul>{% for m in r.checksum_mismatches %}<li><code>{{ m }}</code></li>{% endfor %}</ul>{% endif %}
